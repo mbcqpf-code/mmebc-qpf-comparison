@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forecast Evolution (dprog/dt) | AI Weather Models</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #eef2f5; margin: 0; padding: 12px; text-align: center; }
+        .header { margin-bottom: 10px; }
+        .header h1 { margin: 0 0 4px 0; font-size: 22px; color: #333; }
+        
+        .controls { margin-bottom: 12px; display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; }
+        select { padding: 6px 12px; font-size: 15px; border-radius: 5px; border: 1px solid #ccc; cursor: pointer; background: white; font-weight: 600; }
+        
+        .timeline { display: flex; justify-content: center; gap: 3px; flex-wrap: wrap; max-width: 1200px; margin: 0 auto; }
+        .timeline button { 
+            background-color: #003E94; 
+            color: white; 
+            border: none; 
+            padding: 6px 10px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 13px; 
+            transition: 0.2s; 
+        }
+        .timeline button:hover { background-color: #207CE8; }
+        .timeline button.active { background-color: #CD0000; font-weight: bold; }
+        
+        .info-bar { font-size: 13px; color: #444; margin-top: 8px; margin-bottom: 10px; font-weight: 500; }
+
+        .map-container { display: flex; justify-content: center; align-items: center; gap: 5px; height: calc(100vh - 165px); }
+        /* Scale images to share the screen. The model img is 2 panels wide, st4 is 1 panel wide */
+        .map-container img.models { max-width: 65%; max-height: 100%; object-fit: contain; border: 1px solid #ccc; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 4px; background: white; }
+        .map-container img.obs { max-width: 34%; max-height: 100%; object-fit: contain; border: 1px solid #ccc; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 4px; background: white; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>AI Models Forecast Evolution (dprog/dt)</h1>
+    </div>
+
+    <div class="controls">
+        <label for="valid-select" style="font-size: 14px; font-weight: 500;">Valid Target Date (12z-12z):</label>
+        <select id="valid-select" onchange="onDateChange()"></select>
+    </div>
+
+    <!-- 16-Step Timeline Buttons -->
+    <div class="timeline" id="timeline"></div>
+
+    <div class="info-bar" id="info-bar">Loading archive data...</div>
+
+    <div class="map-container">
+        <img id="qpf-map" class="models" src="" alt="Forecast Models">
+        <img id="st4-map" class="obs" src="" alt="Stage IV Verification">
+    </div>
+
+    <script>
+        let availableRuns = [];
+        let validDatesSet = new Set();
+        let currentStepIndex = 15; // Default to step 16 (Day 1 12z - newest)
+        
+        // Extended to 16 steps (Days 1 to 8)
+        const stepsConfig = [
+            { label: "D8 (00z)", dayNum: 8, cycle: "00", offsetDays: 7 },
+            { label: "D8 (12z)", dayNum: 8, cycle: "12", offsetDays: 7 },
+            { label: "D7 (00z)", dayNum: 7, cycle: "00", offsetDays: 6 },
+            { label: "D7 (12z)", dayNum: 7, cycle: "12", offsetDays: 6 },
+            { label: "D6 (00z)", dayNum: 6, cycle: "00", offsetDays: 5 },
+            { label: "D6 (12z)", dayNum: 6, cycle: "12", offsetDays: 5 },
+            { label: "D5 (00z)", dayNum: 5, cycle: "00", offsetDays: 4 },
+            { label: "D5 (12z)", dayNum: 5, cycle: "12", offsetDays: 4 },
+            { label: "D4 (00z)", dayNum: 4, cycle: "00", offsetDays: 3 },
+            { label: "D4 (12z)", dayNum: 4, cycle: "12", offsetDays: 3 },
+            { label: "D3 (00z)", dayNum: 3, cycle: "00", offsetDays: 2 },
+            { label: "D3 (12z)", dayNum: 3, cycle: "12", offsetDays: 2 },
+            { label: "D2 (00z)", dayNum: 2, cycle: "00", offsetDays: 1 },
+            { label: "D2 (12z)", dayNum: 2, cycle: "12", offsetDays: 1 },
+            { label: "D1 (00z)", dayNum: 1, cycle: "00", offsetDays: 0 },
+            { label: "D1 (12z)", dayNum: 1, cycle: "12", offsetDays: 0 }
+        ];
+
+        async function loadArchive() {
+            try {
+                const response = await fetch('images/archive/archive_list.json?t=' + new Date().getTime());
+                availableRuns = await response.json();
+                
+                availableRuns.forEach(run => {
+                    let yr = parseInt(run.substring(0,4));
+                    let mo = parseInt(run.substring(4,6)) - 1;
+                    let dy = parseInt(run.substring(6,8));
+                    
+                    // Loop 1-8 for the new 8-day setup
+                    for (let d = 1; d <= 8; d++) {
+                        let vDate = new Date(Date.UTC(yr, mo, dy + (d - 1)));
+                        let vStr = vDate.toISOString().split('T')[0];
+                        validDatesSet.add(vStr);
+                    }
+                });
+
+                buildDropdown();
+                renderTimeline();
+                updatePlot();
+            } catch (error) {
+                console.error("Error loading archive list", error);
+                document.getElementById('info-bar').textContent = "Error loading archive database.";
+            }
+        }
+
+        function buildDropdown() {
+            const select = document.getElementById('valid-select');
+            select.innerHTML = '';
+            let sortedValid = Array.from(validDatesSet).sort().reverse();
+            sortedValid.forEach(vDate => {
+                let opt = document.createElement('option');
+                opt.value = vDate;
+                opt.textContent = `${vDate}`;
+                select.appendChild(opt);
+            });
+        }
+
+        function renderTimeline() {
+            const container = document.getElementById('timeline');
+            container.innerHTML = '';
+            stepsConfig.forEach((cfg, idx) => {
+                let btn = document.createElement('button');
+                btn.textContent = cfg.label;
+                if (idx === currentStepIndex) btn.classList.add('active');
+                btn.onclick = () => setStep(idx);
+                container.appendChild(btn);
+            });
+        }
+
+        function setStep(index) {
+            currentStepIndex = index;
+            const buttons = document.querySelectorAll('.timeline button');
+            buttons.forEach((btn, idx) => {
+                btn.classList.toggle('active', idx === index);
+            });
+            updatePlot();
+        }
+
+        function onDateChange() {
+            updatePlot();
+        }
+
+        function updatePlot() {
+            const targetValidStr = document.getElementById('valid-select').value;
+            if (!targetValidStr) return;
+
+            const cfg = stepsConfig[currentStepIndex];
+            let vParts = targetValidStr.split('-');
+            let vDate = new Date(Date.UTC(parseInt(vParts[0]), parseInt(vParts[1]) - 1, parseInt(vParts[2])));
+            vDate.setUTCDate(vDate.getUTCDate() - cfg.offsetDays);
+            
+            let iYr = vDate.getUTCFullYear();
+            let iMo = String(vDate.getUTCMonth() + 1).padStart(2, '0');
+            let iDy = String(vDate.getUTCDate()).padStart(2, '0');
+            
+            let reqRunFolder = `${iYr}${iMo}${iDy}${cfg.cycle}`;
+            let modImagePath = `images/archive/${reqRunFolder}/day${cfg.dayNum}.png`;
+            let st4ImagePath = `images/archive/${reqRunFolder}/st4_day${cfg.dayNum}.png`;
+
+            let endDate = new Date(Date.UTC(parseInt(vParts[0]), parseInt(vParts[1]) - 1, parseInt(vParts[2]) + 1));
+            let endStr = endDate.toISOString().split('T')[0];
+
+            document.getElementById('info-bar').innerHTML = 
+                `Target Valid Window: <b>${targetValidStr} 12z to ${endStr} 12z</b>  |  Model Init: ${iYr}-${iMo}-${iDy} ${cfg.cycle}z (Day ${cfg.dayNum} Lead)`;
+
+            const imgMod = document.getElementById('qpf-map');
+            const imgSt4 = document.getElementById('st4-map');
+            
+            // Generate fallback SVGs if files are truly missing
+            const fallbackSVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="400"><rect width="100%" height="100%" fill="%23ffffff"/><text x="50%" y="50%" font-family="sans-serif" font-size="18" fill="%23cc0000" text-anchor="middle">Archive image not available.</text></svg>';
+            
+            imgMod.onerror = function() { imgMod.src = fallbackSVG; };
+            imgMod.src = modImagePath;
+
+            imgSt4.onerror = function() { imgSt4.src = fallbackSVG; };
+            imgSt4.src = st4ImagePath;
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowRight' && currentStepIndex < 15) {
+                setStep(currentStepIndex + 1);
+            } else if (event.key === 'ArrowLeft' && currentStepIndex > 0) {
+                setStep(currentStepIndex - 1);
+            }
+        });
+
+        window.onload = loadArchive;
+    </script>
+</body>
+</html>
