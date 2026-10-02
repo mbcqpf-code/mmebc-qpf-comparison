@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forecast Evolution (dprog/dt) | MMEBC</title>
+    <title>Forecast Evolution (dprog/dt) | AI Weather Models</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #eef2f5; margin: 0; padding: 12px; text-align: center; }
         .header { margin-bottom: 10px; }
@@ -52,7 +52,6 @@
         <h1>AI Models Forecast Evolution (dprog/dt)</h1>
     </div>
 
-    <!-- Date Navigation Controls -->
     <div class="controls">
         <button class="btn-nav" onclick="stepValidDate(-1)" title="Previous Calendar Day (Older)">← Prev Day</button>
         <label for="valid-select" style="font-size: 14px; font-weight: 500;">Valid Target Date (12z-12z):</label>
@@ -60,9 +59,7 @@
         <button class="btn-nav" onclick="stepValidDate(1)" title="Next Calendar Day (Newer)">Next Day →</button>
     </div>
 
-    <!-- 16-Step Lead Timeline Buttons -->
     <div class="timeline" id="timeline"></div>
-
     <div class="info-bar" id="info-bar">Loading archive data...</div>
 
     <div class="map-container">
@@ -73,7 +70,7 @@
     <script>
         let availableRuns = [];
         let validDatesSet = new Set();
-        let currentStepIndex = 15; // Default to step 16 (Day 1 12z - newest lead)
+        let currentStepIndex = 15; 
         
         const stepsConfig = [
             { label: "D8 (00z)", dayNum: 8, cycle: "00", offsetDays: 7 },
@@ -135,12 +132,7 @@
         function stepValidDate(direction) {
             const select = document.getElementById('valid-select');
             if (!select || select.options.length === 0) return;
-
-            // Dropdown is sorted newest to oldest:
-            // direction = -1 -> Previous day (older calendar date, index + 1)
-            // direction =  1 -> Next day (newer calendar date, index - 1)
             let newIndex = select.selectedIndex - direction;
-
             if (newIndex >= 0 && newIndex < select.options.length) {
                 select.selectedIndex = newIndex;
                 updatePlot();
@@ -184,13 +176,19 @@
             let iYr = vDate.getUTCFullYear();
             let iMo = String(vDate.getUTCMonth() + 1).padStart(2, '0');
             let iDy = String(vDate.getUTCDate()).padStart(2, '0');
-            
             let reqRunFolder = `${iYr}${iMo}${iDy}${cfg.cycle}`;
-            let modImagePath = `images/archive/${reqRunFolder}/day${cfg.dayNum}.png`;
-            let st4ImagePath = `images/archive/${reqRunFolder}/st4_day${cfg.dayNum}.png`;
-
+            
             let endDate = new Date(Date.UTC(parseInt(vParts[0]), parseInt(vParts[1]) - 1, parseInt(vParts[2]) + 1));
             let endStr = endDate.toISOString().split('T')[0];
+
+            // --- CENTRALIZED OBS FORMATTING ---
+            let obsYear = endDate.getUTCFullYear();
+            let obsMonth = String(endDate.getUTCMonth() + 1).padStart(2, '0');
+            let obsDay = String(endDate.getUTCDate()).padStart(2, '0');
+            let obsDateStr = `${obsYear}${obsMonth}${obsDay}`;
+
+            let modImagePath = `images/archive/${reqRunFolder}/day${cfg.dayNum}.png`;
+            let st4ImagePath = `images/archive/obs/st4_${obsDateStr}12.png`; // Points to new obs folder
 
             document.getElementById('info-bar').innerHTML = 
                 `Target Valid Window: <b>${targetValidStr} 12z to ${endStr} 12z</b>  |  Model Init: ${iYr}-${iMo}-${iDy} ${cfg.cycle}z (Day ${cfg.dayNum} Lead)`;
@@ -207,9 +205,6 @@
             imgSt4.src = st4ImagePath;
         }
 
-        // Keyboard Controls:
-        // Left / Right Arrows: Change Lead Steps (D8 to D1)
-        // Up / Down Arrows: Change Target Valid Date
         document.addEventListener('keydown', function(event) {
             if (event.key === 'ArrowRight' && currentStepIndex < 15) {
                 setStep(currentStepIndex + 1);
