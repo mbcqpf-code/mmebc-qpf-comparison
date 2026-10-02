@@ -3,15 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forecast Evolution (dprog/dt) | AI Weather Models</title>
+    <title>Forecast Evolution (dprog/dt) | MMEBC</title>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #eef2f5; margin: 0; padding: 12px; text-align: center; }
         .header { margin-bottom: 10px; }
         .header h1 { margin: 0 0 4px 0; font-size: 22px; color: #333; }
         
-        .controls { margin-bottom: 12px; display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .controls { margin-bottom: 12px; display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
         select { padding: 6px 12px; font-size: 15px; border-radius: 5px; border: 1px solid #ccc; cursor: pointer; background: white; font-weight: 600; }
         
+        .btn-nav {
+            background-color: #555;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+        .btn-nav:hover { background-color: #333; }
+
         .timeline { display: flex; justify-content: center; gap: 3px; flex-wrap: wrap; max-width: 1200px; margin: 0 auto; }
         .timeline button { 
             background-color: #003E94; 
@@ -29,7 +42,6 @@
         .info-bar { font-size: 13px; color: #444; margin-top: 8px; margin-bottom: 10px; font-weight: 500; }
 
         .map-container { display: flex; justify-content: center; align-items: center; gap: 5px; height: calc(100vh - 165px); }
-        /* Scale images to share the screen. The model img is 2 panels wide, st4 is 1 panel wide */
         .map-container img.models { max-width: 65%; max-height: 100%; object-fit: contain; border: 1px solid #ccc; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 4px; background: white; }
         .map-container img.obs { max-width: 34%; max-height: 100%; object-fit: contain; border: 1px solid #ccc; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 4px; background: white; }
     </style>
@@ -40,12 +52,15 @@
         <h1>AI Models Forecast Evolution (dprog/dt)</h1>
     </div>
 
+    <!-- Date Navigation Controls -->
     <div class="controls">
+        <button class="btn-nav" onclick="stepValidDate(-1)" title="Previous Calendar Day (Older)">← Prev Day</button>
         <label for="valid-select" style="font-size: 14px; font-weight: 500;">Valid Target Date (12z-12z):</label>
         <select id="valid-select" onchange="onDateChange()"></select>
+        <button class="btn-nav" onclick="stepValidDate(1)" title="Next Calendar Day (Newer)">Next Day →</button>
     </div>
 
-    <!-- 16-Step Timeline Buttons -->
+    <!-- 16-Step Lead Timeline Buttons -->
     <div class="timeline" id="timeline"></div>
 
     <div class="info-bar" id="info-bar">Loading archive data...</div>
@@ -58,9 +73,8 @@
     <script>
         let availableRuns = [];
         let validDatesSet = new Set();
-        let currentStepIndex = 15; // Default to step 16 (Day 1 12z - newest)
+        let currentStepIndex = 15; // Default to step 16 (Day 1 12z - newest lead)
         
-        // Extended to 16 steps (Days 1 to 8)
         const stepsConfig = [
             { label: "D8 (00z)", dayNum: 8, cycle: "00", offsetDays: 7 },
             { label: "D8 (12z)", dayNum: 8, cycle: "12", offsetDays: 7 },
@@ -90,7 +104,6 @@
                     let mo = parseInt(run.substring(4,6)) - 1;
                     let dy = parseInt(run.substring(6,8));
                     
-                    // Loop 1-8 for the new 8-day setup
                     for (let d = 1; d <= 8; d++) {
                         let vDate = new Date(Date.UTC(yr, mo, dy + (d - 1)));
                         let vStr = vDate.toISOString().split('T')[0];
@@ -117,6 +130,21 @@
                 opt.textContent = `${vDate}`;
                 select.appendChild(opt);
             });
+        }
+
+        function stepValidDate(direction) {
+            const select = document.getElementById('valid-select');
+            if (!select || select.options.length === 0) return;
+
+            // Dropdown is sorted newest to oldest:
+            // direction = -1 -> Previous day (older calendar date, index + 1)
+            // direction =  1 -> Next day (newer calendar date, index - 1)
+            let newIndex = select.selectedIndex - direction;
+
+            if (newIndex >= 0 && newIndex < select.options.length) {
+                select.selectedIndex = newIndex;
+                updatePlot();
+            }
         }
 
         function renderTimeline() {
@@ -170,7 +198,6 @@
             const imgMod = document.getElementById('qpf-map');
             const imgSt4 = document.getElementById('st4-map');
             
-            // Generate fallback SVGs if files are truly missing
             const fallbackSVG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="900" height="400"><rect width="100%" height="100%" fill="%23ffffff"/><text x="50%" y="50%" font-family="sans-serif" font-size="18" fill="%23cc0000" text-anchor="middle">Archive image not available.</text></svg>';
             
             imgMod.onerror = function() { imgMod.src = fallbackSVG; };
@@ -180,11 +207,20 @@
             imgSt4.src = st4ImagePath;
         }
 
+        // Keyboard Controls:
+        // Left / Right Arrows: Change Lead Steps (D8 to D1)
+        // Up / Down Arrows: Change Target Valid Date
         document.addEventListener('keydown', function(event) {
             if (event.key === 'ArrowRight' && currentStepIndex < 15) {
                 setStep(currentStepIndex + 1);
             } else if (event.key === 'ArrowLeft' && currentStepIndex > 0) {
                 setStep(currentStepIndex - 1);
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                stepValidDate(1);
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                stepValidDate(-1);
             }
         });
 
